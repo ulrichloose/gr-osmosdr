@@ -102,13 +102,17 @@ public:
   osmosdr::gain_range_t get_gain_range( const std::string & name, size_t chan = 0 );
   bool set_gain_mode( bool automatic, size_t chan = 0 );
   bool get_gain_mode( size_t chan = 0 );
+  double set_bandwidth( double bandwidth, size_t chan = 0 );
   double set_gain( double gain, size_t chan = 0 );
   double set_gain( double gain, const std::string & name, size_t chan = 0 );
   double get_gain( size_t chan = 0 );
   double get_gain( const std::string & name, size_t chan = 0 );
 
   double set_if_gain( double gain, size_t chan = 0 );
-
+  double set_lna_gain( double gain, size_t chan = 0 );
+  double set_mix_gain( double gain, size_t chan = 0 );
+  double set_vga_gain( double gain, size_t chan = 0 );
+  
   std::vector< std::string > get_antennas( size_t chan = 0 );
   std::string set_antenna( const std::string & antenna, size_t chan = 0 );
   std::string get_antenna( size_t chan = 0 );
@@ -142,7 +146,12 @@ private:
   bool _no_tuner;
   bool _auto_gain;
   double _if_gain;
+  double _lna_gain;
+  double _mix_gain;
+  double _vga_gain;
   unsigned int _skipped;
+  
+  bool _extended_mode;
 };
 
 #endif /* INCLUDED_RTLSDR_SOURCE_C_H */
