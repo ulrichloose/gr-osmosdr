@@ -87,7 +87,11 @@ rtl_source_c::rtl_source_c (const std::string &args)
     _no_tuner(false),
     _auto_gain(false),
     _if_gain(0),
-    _skipped(0)
+    _lna_gain(0),
+    _mix_gain(0),
+    _vga_gain(0),
+    _skipped(0),
+   _extended_mode(0)
 {
   int ret;
   int index;
@@ -153,7 +157,10 @@ rtl_source_c::rtl_source_c (const std::string &args)
   if (dict.count("bias"))
     bias_tee = boost::lexical_cast<bool>( dict["bias"] );
 
-  _buf_num = _buf_len = _buf_head = _buf_used = _buf_offset = 0;
+  if (dict.count("extended_mode"))
+    _extended_mode = boost::lexical_cast< bool >( dict["extended_mode"] );
+    
+    _buf_num = _buf_len = _buf_head = _buf_used = _buf_offset = 0;
 
   if (dict.count("buffers"))
     _buf_num = boost::lexical_cast< unsigned int >( dict["buffers"] );
@@ -527,9 +534,22 @@ std::vector<std::string> rtl_source_c::get_gain_names( size_t chan )
   if ( _dev ) {
     if ( rtlsdr_get_tuner_type(_dev) == RTLSDR_TUNER_E4000 ) {
       names += "IF";
-    }
+    } 
+    /* luigi */
+    if ( rtlsdr_get_tuner_type(_dev) == RTLSDR_TUNER_R820T ) {
+      if ( _extended_mode ) {
+       names += "MIX";
+       names += "IF";
+      }
+    }    
   }
+  
+  std::cerr << "gain names: ";
 
+  for (std::vector< std::string >::const_iterator i = names.begin(); i != names.end(); ++i)
+    std::cerr << *i << ' ';
+
+  std::cerr << std::endl;
   return names;
 }
 
@@ -553,8 +573,27 @@ osmosdr::gain_range_t rtl_source_c::get_gain_range( size_t chan )
 
 osmosdr::gain_range_t rtl_source_c::get_gain_range( const std::string & name, size_t chan )
 {
-  if ( "IF" == name ) {
-    if ( _dev ) {
+
+  if ( _dev ) {
+    if ( rtlsdr_get_tuner_type(_dev) == RTLSDR_TUNER_R820T ) {
+      if ( _extended_mode ) {
+        if ( "LNA" == name ) {
+          return osmosdr::gain_range_t( 0, 15, 1 );
+        }
+
+        if ( "MIX" == name ) {
+          return osmosdr::gain_range_t( 0, 15, 1 );
+        }
+
+        if ( "IF" == name ) {
+          return osmosdr::gain_range_t( 0, 15, 1 );
+        }
+
+        return osmosdr::gain_range_t();
+      }
+    }
+
+    if ( "IF" == name ) {
       if ( rtlsdr_get_tuner_type(_dev) == RTLSDR_TUNER_E4000 ) {
         return osmosdr::gain_range_t(3, 56, 1);
       } else {
@@ -584,6 +623,17 @@ bool rtl_source_c::get_gain_mode( size_t chan )
   return _auto_gain;
 }
 
+/* luigi */
+double rtl_source_c::set_bandwidth( double bandwidth, size_t chan )
+{
+  if (_dev) {
+    std::cerr << "Setting tuner bandwidth to " << bandwidth << " Hz." << std::endl;
+    return (double)rtlsdr_set_tuner_bandwidth( _dev, (uint32_t)bandwidth);
+  }
+
+  return 0;
+}
+
 double rtl_source_c::set_gain( double gain, size_t chan )
 {
   osmosdr::gain_range_t rf_gains = rtl_source_c::get_gain_range( chan );
@@ -595,8 +645,58 @@ double rtl_source_c::set_gain( double gain, size_t chan )
   return get_gain( chan );
 }
 
+double rtl_source_c::set_lna_gain( double gain, size_t chan )
+{
+  osmosdr::gain_range_t gains = rtl_source_c::get_gain_range( "LNA", chan );
+
+  if (_dev) {
+    _lna_gain = gains.clip(gain);
+    return rtlsdr_set_tuner_gain_ext( _dev, int(_lna_gain), int(_mix_gain), int(_vga_gain) );
+  }
+
+  return 0;
+}
+
+double rtl_source_c::set_mix_gain( double gain, size_t chan )
+{
+  osmosdr::gain_range_t gains = rtl_source_c::get_gain_range( "MIX", chan );
+
+  if (_dev) {
+    _mix_gain = gains.clip(gain);
+    return rtlsdr_set_tuner_gain_ext( _dev, int(_lna_gain), int(_mix_gain), int(_vga_gain) );
+  }
+
+  return 0;
+}
+
+double rtl_source_c::set_vga_gain( double gain, size_t chan )
+{
+  osmosdr::gain_range_t gains = rtl_source_c::get_gain_range( "IF", chan );
+
+  if (_dev) {
+    _vga_gain = gains.clip(gain);
+    return rtlsdr_set_tuner_gain_ext( _dev, int(_lna_gain), int(_mix_gain), int(_vga_gain) );
+  }
+
+  return 0;
+}
+
 double rtl_source_c::set_gain( double gain, const std::string & name, size_t chan)
 {
+  if ( _extended_mode ) {
+    if ( "LNA" == name ) {
+      return set_lna_gain( gain, chan );
+    }
+
+    if ( "MIX" == name ) {
+      return set_mix_gain( gain, chan );
+    }
+
+    if ( "IF" == name ) {
+      return set_vga_gain( gain, chan );
+    }
+  }
+
   if ( "IF" == name ) {
     return set_if_gain( gain, chan );
   }
@@ -614,6 +714,20 @@ double rtl_source_c::get_gain( size_t chan )
 
 double rtl_source_c::get_gain( const std::string & name, size_t chan )
 {
+  if ( _extended_mode ) {
+    if ( "LNA" == name ) {
+      return _lna_gain;
+    }
+
+    if ( "MIX" == name ) {
+      return _mix_gain;
+    }
+
+    if ( "IF" == name ) {
+      return _vga_gain;
+    }
+  }
+
   if ( "IF" == name ) {
     return _if_gain;
   }
